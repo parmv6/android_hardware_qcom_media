@@ -1,5 +1,5 @@
 /*--------------------------------------------------------------------------
-Copyright (c) 2010-2012, Code Aurora Forum. All rights reserved.
+Copyright (c) 2010-2013, The Linux Foundation. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -8,7 +8,7 @@ modification, are permitted provided that the following conditions are met:
     * Redistributions in binary form must reproduce the above copyright
       notice, this list of conditions and the following disclaimer in the
       documentation and/or other materials provided with the distribution.
-    * Neither the name of Code Aurora nor
+    * Neither the name of the Linux Foundation nor
       the names of its contributors may be used to endorse or promote
       products derived from this software without specific prior written
       permission.
@@ -117,13 +117,24 @@ char ouputextradatafilename [] = "/data/extradata";
 
 #ifdef USE_ION
     #define MEM_DEVICE "/dev/ion"
+    #ifdef MAX_RES_720P
+    #define MEM_HEAP_ID ION_CAMERA_HEAP_ID
+    #else
     #define MEM_HEAP_ID ION_CP_MM_HEAP_ID
+    #endif
 #elif MAX_RES_720P
 #define MEM_DEVICE "/dev/pmem_adsp"
 #elif MAX_RES_1080P_EBI
 #define MEM_DEVICE "/dev/pmem_adsp"
 #elif MAX_RES_1080P
 #define MEM_DEVICE "/dev/pmem_smipool"
+#endif
+
+
+#ifdef MAX_RES_720P
+#define DEVICE_SCRATCH 0
+#else
+#define DEVICE_SCRATCH 64
 #endif
 
 /*
@@ -133,14 +144,6 @@ char ouputextradatafilename [] = "/data/extradata";
     }
 #endif//_ANDROID_
 */
-
-#undef DEBUG_PRINT_LOW
-#undef DEBUG_PRINT_HIGH
-#undef DEBUG_PRINT_ERROR
-
-#define DEBUG_PRINT_LOW ALOGV
-#define DEBUG_PRINT_HIGH ALOGV
-#define DEBUG_PRINT_ERROR ALOGE
 
 #ifndef _ANDROID_
 #include <glib.h>
@@ -478,6 +481,8 @@ omx_vdec::omx_vdec(): m_state(OMX_StateInvalid),
                       h264_last_au_ts(LLONG_MAX),
                       h264_last_au_flags(0),
                       m_inp_err_count(0),
+                      m_disp_hor_size(0),
+                      m_disp_vert_size(0),
 #ifdef _ANDROID_
                       m_heap_ptr(NULL),
                       m_heap_count(0),
@@ -1515,8 +1520,8 @@ OMX_ERRORTYPE omx_vdec::component_init(OMX_STRING role)
         }
         else
         {
-         h264_scratch.nAllocLen = drv_ctx.ip_buf.buffer_size;
-         h264_scratch.pBuffer = (OMX_U8 *)malloc (drv_ctx.ip_buf.buffer_size);
+         h264_scratch.nAllocLen = drv_ctx.ip_buf.buffer_size - DEVICE_SCRATCH;
+         h264_scratch.pBuffer = (OMX_U8 *)malloc (h264_scratch.nAllocLen);
          h264_scratch.nFilledLen = 0;
          h264_scratch.nOffset = 0;
 
@@ -2686,6 +2691,20 @@ OMX_ERRORTYPE  omx_vdec::get_parameter(OMX_IN OMX_HANDLETYPE     hComp,
       eRet = update_portdef(portDefn);
       if (eRet == OMX_ErrorNone)
           m_port_def = *portDefn;
+      DEBUG_PRINT_HIGH("Get_parameter: OMX_IndexParamPortDefinition: "
+        "nPortIndex (%d), nFrameWidth (%d), nFrameHeight (%d), "
+        "nStride (%d), nSliceHeight (%d), nBitrate (%d), xFramerate (0x%x), "
+        "nBufferSize (%d), nBufferCountMin (%d), nBufferCountActual (%d), "
+        "bBuffersContiguous (%d), nBufferAlignment (%d), "
+        "bEnabled (%d), bPopulated (%d), eCompressionFormat (0x%x), "
+        "eColorFormat (0x%x)" , (int)portDefn->nPortIndex,
+        (int)portDefn->format.video.nFrameWidth, (int)portDefn->format.video.nFrameHeight,
+        (int)portDefn->format.video.nStride, (int)portDefn->format.video.nSliceHeight,
+        (int)portDefn->format.video.nBitrate, (int)portDefn->format.video.xFramerate,
+        (int)portDefn->nBufferSize, (int)portDefn->nBufferCountMin,
+        (int)portDefn->nBufferCountActual, (int)portDefn->bBuffersContiguous,
+        (int)portDefn->nBufferAlignment, (int)portDefn->bEnabled, (int)portDefn->bPopulated,
+        (int)portDefn->format.video.eCompressionFormat, (int)portDefn->format.video.eColorFormat);
       break;
     }
     case OMX_IndexParamVideoInit:
@@ -2704,8 +2723,6 @@ OMX_ERRORTYPE  omx_vdec::get_parameter(OMX_IN OMX_HANDLETYPE     hComp,
     {
       OMX_VIDEO_PARAM_PORTFORMATTYPE *portFmt =
                      (OMX_VIDEO_PARAM_PORTFORMATTYPE *)paramData;
-      DEBUG_PRINT_LOW("get_parameter: OMX_IndexParamVideoPortFormat\n");
-
       portFmt->nVersion.nVersion = OMX_SPEC_VERSION;
       portFmt->nSize             = sizeof(portFmt);
 
@@ -2726,18 +2743,9 @@ OMX_ERRORTYPE  omx_vdec::get_parameter(OMX_IN OMX_HANDLETYPE     hComp,
       else if (1 == portFmt->nPortIndex)
       {
         portFmt->eCompressionFormat =  OMX_VIDEO_CodingUnused;
-#ifdef MAX_RES_720P
-        if (0 == portFmt->nIndex)
-          portFmt->eColorFormat = OMX_COLOR_FormatYUV420SemiPlanar;
-        else if(1 == portFmt->nIndex)
-          portFmt->eColorFormat = (OMX_COLOR_FORMATTYPE)
-            QOMX_COLOR_FormatYUV420PackedSemiPlanar64x32Tile2m8ka;
-#endif
-#ifdef MAX_RES_1080P
         if(0 == portFmt->nIndex)
           portFmt->eColorFormat = (OMX_COLOR_FORMATTYPE)
             QOMX_COLOR_FormatYUV420PackedSemiPlanar64x32Tile2m8ka;
-#endif
         else if (1 == portFmt->nIndex) {
           portFmt->eColorFormat = OMX_COLOR_FormatYUV420Planar;
         }
@@ -2754,6 +2762,11 @@ OMX_ERRORTYPE  omx_vdec::get_parameter(OMX_IN OMX_HANDLETYPE     hComp,
                           (int)portFmt->nPortIndex);
         eRet = OMX_ErrorBadPortIndex;
       }
+      DEBUG_PRINT_HIGH("Get_parameter: OMX_IndexParamVideoPortFormat: "
+         "nPortIndex (%d), nIndex (%d), eCompressionFormat (0x%x), "
+         "eColorFormat (0x%x), xFramerate (0x%x)", (int)portFmt->nPortIndex,
+         (int)portFmt->nIndex, (int)portFmt->eCompressionFormat,
+         (int)portFmt->eColorFormat, (int)portFmt->xFramerate);
       break;
     }
     /*Component should support this port definition*/
@@ -2877,6 +2890,10 @@ OMX_ERRORTYPE  omx_vdec::get_parameter(OMX_IN OMX_HANDLETYPE     hComp,
             GetAndroidNativeBufferUsageParams* nativeBuffersUsage = (GetAndroidNativeBufferUsageParams *) paramData;
             if(nativeBuffersUsage->nPortIndex == OMX_CORE_OUTPUT_PORT_INDEX) {
 #ifdef USE_ION
+#if defined (MAX_RES_720P)
+                nativeBuffersUsage->nUsage = (GRALLOC_USAGE_PRIVATE_CAMERA_HEAP | GRALLOC_USAGE_PRIVATE_UNCACHED);
+                DEBUG_PRINT_HIGH("ION:720P: nUsage 0x%x",nativeBuffersUsage->nUsage);
+#else
                 if(secure_mode) {
                         nativeBuffersUsage->nUsage = (GRALLOC_USAGE_PRIVATE_MM_HEAP | GRALLOC_USAGE_PROTECTED |
                                                       GRALLOC_USAGE_PRIVATE_CP_BUFFER | GRALLOC_USAGE_PRIVATE_UNCACHED);
@@ -2884,6 +2901,7 @@ OMX_ERRORTYPE  omx_vdec::get_parameter(OMX_IN OMX_HANDLETYPE     hComp,
                         nativeBuffersUsage->nUsage = (GRALLOC_USAGE_PRIVATE_MM_HEAP |
                                                          GRALLOC_USAGE_PRIVATE_IOMMU_HEAP);
                 }
+#endif //(MAX_RES_720P)
 #else
 #if defined (MAX_RES_720P) ||  defined (MAX_RES_1080P_EBI)
                 nativeBuffersUsage->nUsage = (GRALLOC_USAGE_PRIVATE_ADSP_HEAP | GRALLOC_USAGE_PRIVATE_UNCACHED);
@@ -3098,10 +3116,10 @@ OMX_ERRORTYPE  omx_vdec::set_parameter(OMX_IN OMX_HANDLETYPE     hComp,
              }
          }
          else if (portDefn->nBufferCountActual >= drv_ctx.ip_buf.mincount
-                  && portDefn->nBufferSize == drv_ctx.ip_buf.buffer_size)
+                  && portDefn->nBufferSize == (drv_ctx.ip_buf.buffer_size - DEVICE_SCRATCH))
          {
              drv_ctx.ip_buf.actualcount = portDefn->nBufferCountActual;
-             drv_ctx.ip_buf.buffer_size = portDefn->nBufferSize;
+             drv_ctx.ip_buf.buffer_size = portDefn->nBufferSize + DEVICE_SCRATCH;
              eRet = set_buffer_req(&drv_ctx.ip_buf);
          }
          else
@@ -3118,15 +3136,26 @@ OMX_ERRORTYPE  omx_vdec::set_parameter(OMX_IN OMX_HANDLETYPE     hComp,
                       (int)portDefn->nPortIndex);
           eRet = OMX_ErrorBadPortIndex;
       }
+      DEBUG_PRINT_HIGH("Set_parameter: OMX_IndexParamPortDefinition: "
+        "nPortIndex (%d), nFrameWidth (%d), nFrameHeight (%d), "
+        "nStride (%d), nSliceHeight (%d), nBitrate (%d), xFramerate (0x%x), "
+        "nBufferSize (%d), nBufferCountMin (%d), nBufferCountActual (%d), "
+        "bBuffersContiguous (%d), nBufferAlignment (%d), "
+        "bEnabled (%d), bPopulated (%d), eCompressionFormat (0x%x), "
+        "eColorFormat (0x%x)" , (int)portDefn->nPortIndex,
+        (int)portDefn->format.video.nFrameWidth, (int)portDefn->format.video.nFrameHeight,
+        (int)portDefn->format.video.nStride, (int)portDefn->format.video.nSliceHeight,
+        (int)portDefn->format.video.nBitrate, (int)portDefn->format.video.xFramerate,
+        (int)portDefn->nBufferSize, (int)portDefn->nBufferCountMin,
+        (int)portDefn->nBufferCountActual, (int)portDefn->bBuffersContiguous,
+        (int)portDefn->nBufferAlignment, (int)portDefn->bEnabled, (int)portDefn->bPopulated,
+        (int)portDefn->format.video.eCompressionFormat, (int)portDefn->format.video.eColorFormat);
     }
     break;
     case OMX_IndexParamVideoPortFormat:
     {
       OMX_VIDEO_PARAM_PORTFORMATTYPE *portFmt =
                      (OMX_VIDEO_PARAM_PORTFORMATTYPE *)paramData;
-      DEBUG_PRINT_LOW("set_parameter: OMX_IndexParamVideoPortFormat %d\n",
-              portFmt->eColorFormat);
-
       if(1 == portFmt->nPortIndex)
       {
          enum vdec_output_fromat op_format;
@@ -3162,6 +3191,11 @@ OMX_ERRORTYPE  omx_vdec::set_parameter(OMX_IN OMX_HANDLETYPE     hComp,
            }
          }
        }
+       DEBUG_PRINT_HIGH("Set_parameter: OMX_IndexParamVideoPortFormat: "
+          "nPortIndex (%d), nIndex (%d), eCompressionFormat (0x%x), "
+          "eColorFormat (0x%x), xFramerate (0x%x)", (int)portFmt->nPortIndex,
+          (int)portFmt->nIndex, (int)portFmt->eCompressionFormat,
+          (int)portFmt->eColorFormat, (int)portFmt->xFramerate);
     }
     break;
 
@@ -4561,7 +4595,7 @@ OMX_ERRORTYPE omx_vdec::allocate_input_heap_buffer(OMX_HANDLETYPE       hComp,
     input->pBuffer           = (OMX_U8 *)buf_addr;
     input->nSize             = sizeof(OMX_BUFFERHEADERTYPE);
     input->nVersion.nVersion = OMX_SPEC_VERSION;
-    input->nAllocLen         = drv_ctx.ip_buf.buffer_size;
+    input->nAllocLen         = drv_ctx.ip_buf.buffer_size - DEVICE_SCRATCH;
     input->pAppPrivate       = appData;
     input->nInputPortIndex   = OMX_CORE_INPUT_PORT_INDEX;
     DEBUG_PRINT_LOW("\n Address of Heap Buffer %p",*bufferHdr );
@@ -4614,7 +4648,7 @@ OMX_ERRORTYPE  omx_vdec::allocate_input_buffer(
   unsigned char *buf_addr = NULL;
   int pmem_fd = -1;
 
-  if(bytes != drv_ctx.ip_buf.buffer_size)
+  if((bytes + DEVICE_SCRATCH) != drv_ctx.ip_buf.buffer_size)
   {
     DEBUG_PRINT_LOW("\n Requested Size is wrong %d epected is %d",
       bytes, drv_ctx.ip_buf.buffer_size);
@@ -4758,7 +4792,7 @@ OMX_ERRORTYPE  omx_vdec::allocate_input_buffer(
          input->pBuffer           = (OMX_U8 *)buf_addr;
     input->nSize             = sizeof(OMX_BUFFERHEADERTYPE);
     input->nVersion.nVersion = OMX_SPEC_VERSION;
-    input->nAllocLen         = drv_ctx.ip_buf.buffer_size;
+    input->nAllocLen         = drv_ctx.ip_buf.buffer_size - DEVICE_SCRATCH;
     input->pAppPrivate       = appData;
     input->nInputPortIndex   = OMX_CORE_INPUT_PORT_INDEX;
     input->pInputPortPrivate = (void *)&drv_ctx.ptr_inputbuffer [i];
@@ -6491,7 +6525,6 @@ OMX_ERRORTYPE omx_vdec::fill_buffer_done(OMX_HANDLETYPE hComp,
 #ifdef _ANDROID_
   char value[PROPERTY_VALUE_MAX];
   property_get("vidc.dec.debug.panframedata", value, NULL);
-
   if (atoi(value))
   {
     if (buffer->nFlags & QOMX_VIDEO_BUFFERFLAG_EOSEQ)
@@ -6857,7 +6890,6 @@ int omx_vdec::async_message_process (void *context, void* message)
         output_respbuf->interlaced_format = vdec_msg->msgdata.output_frame.interlaced_format;
         output_respbuf->aspect_ratio_info =
            vdec_msg->msgdata.output_frame.aspect_ratio_info;
-
 
         if (omx->output_use_buffer)
           memcpy ( omxhdr->pBuffer,
@@ -7523,7 +7555,12 @@ int omx_vdec::alloc_map_ion_memory(OMX_U32 buffer_size,
   if(secure_mode) {
     alloc_data->flags = (ION_HEAP(MEM_HEAP_ID) | ION_SECURE);
   } else {
+#ifdef MAX_RES_720P
+    alloc_data->len = (buffer_size + (alloc_data->align - 1)) & ~(alloc_data->align - 1);
+    alloc_data->flags = ION_HEAP(MEM_HEAP_ID);
+#else
     alloc_data->flags = (ION_HEAP(MEM_HEAP_ID) | ION_HEAP(ION_IOMMU_HEAP_ID));
+#endif
   }
   rc = ioctl(fd,ION_IOC_ALLOC,alloc_data);
   if (rc || !alloc_data->handle) {
@@ -7545,7 +7582,10 @@ int omx_vdec::alloc_map_ion_memory(OMX_U32 buffer_size,
     close(fd);
     fd = -ENOMEM;
   }
-
+  DEBUG_PRINT_HIGH("ION: alloc_data: handle(0x%X), len(%u), align(%u), "
+     "flags(0x%x), fd_data: handle(0x%x), fd(0x%x)",
+     alloc_data->handle, alloc_data->len, alloc_data->align,
+     alloc_data->flags, fd_data->handle, fd_data->fd);
   return fd;
 }
 
@@ -7555,6 +7595,10 @@ void omx_vdec::free_ion_memory(struct vdec_ion *buf_ion_info) {
        DEBUG_PRINT_ERROR("\n ION: free called with invalid fd/allocdata");
        return;
      }
+     DEBUG_PRINT_HIGH("ION: free: handle(0x%X), len(%u), fd(0x%x)",
+       buf_ion_info->ion_alloc_data.handle,
+       buf_ion_info->ion_alloc_data.len,
+       buf_ion_info->fd_ion_data.fd);
      if(ioctl(buf_ion_info->ion_device_fd,ION_IOC_FREE,
              &buf_ion_info->ion_alloc_data.handle)) {
        DEBUG_PRINT_ERROR("\n ION: free failed" );
@@ -7808,7 +7852,7 @@ OMX_ERRORTYPE omx_vdec::update_portdef(OMX_PARAM_PORTDEFINITIONTYPE *portDefn)
     portDefn->eDir =  OMX_DirInput;
     portDefn->nBufferCountActual = drv_ctx.ip_buf.actualcount;
     portDefn->nBufferCountMin    = drv_ctx.ip_buf.mincount;
-    portDefn->nBufferSize        = drv_ctx.ip_buf.buffer_size;
+    portDefn->nBufferSize        = drv_ctx.ip_buf.buffer_size - DEVICE_SCRATCH;
     portDefn->format.video.eColorFormat = OMX_COLOR_FormatUnused;
     portDefn->format.video.eCompressionFormat = eCompressionFormat;
     portDefn->bEnabled   = m_inp_bEnabled;
@@ -8156,7 +8200,6 @@ void omx_vdec::handle_extradata(OMX_BUFFERHEADERTYPE *p_buf_hdr)
 
   OMX_U32 index = p_buf_hdr - m_out_mem_ptr;
   OMX_U8* pBuffer = (OMX_U8 *)drv_ctx.ptr_outputbuffer[index].bufferaddr;
-
   p_extra = (OMX_OTHER_EXTRADATATYPE *)
            ((unsigned)(pBuffer + p_buf_hdr->nOffset +
             p_buf_hdr->nFilledLen + 3)&(~3));
@@ -8522,12 +8565,21 @@ void omx_vdec::append_frame_info_extradata(OMX_OTHER_EXTRADATATYPE *extra,
     frame_info->interlaceType = OMX_QCOM_InterlaceFrameProgressive;
   memset(&frame_info->panScan,0,sizeof(frame_info->panScan));
   memset(&frame_info->aspectRatio, 0, sizeof(frame_info->aspectRatio));
+  memset(&frame_info->displayAspectRatio, 0, sizeof(frame_info->displayAspectRatio));
   if (drv_ctx.decoder_format == VDEC_CODECTYPE_H264)
   {
     h264_parser->fill_pan_scan_data(&frame_info->panScan, timestamp);
   }
 
   fill_aspect_ratio_info(aspect_ratio_info, frame_info);
+  if (drv_ctx.decoder_format == VDEC_CODECTYPE_MPEG2)
+  {
+    if (m_disp_hor_size && m_disp_vert_size)
+    {
+      frame_info->displayAspectRatio.displayHorizontalSize = m_disp_hor_size;
+      frame_info->displayAspectRatio.displayVerticalSize = m_disp_vert_size;
+    }
+  }
   frame_info->nConcealedMacroblocks = num_conceal_mb;
   frame_info->nFrameRate = frame_rate;
   print_debug_extradata(extra);
@@ -8538,29 +8590,74 @@ void omx_vdec::fill_aspect_ratio_info(
                        OMX_QCOM_EXTRADATA_FRAMEINFO *frame_info)
 {
   m_extradata = frame_info;
-
-  m_extradata->aspectRatio.aspectRatioX = 0;
-  m_extradata->aspectRatio.aspectRatioY = 0;
-
-  if(drv_ctx.decoder_format == VDEC_CODECTYPE_H264)
+  if(drv_ctx.decoder_format == VDEC_CODECTYPE_MPEG2)
   {
-     h264_parser->fill_aspect_ratio_info(&m_extradata->aspectRatio);
+    switch(aspect_ratio_info->aspect_ratio)
+    {
+      case 1:
+        m_extradata->aspectRatio.aspectRatioX = 1;
+        m_extradata->aspectRatio.aspectRatioY = 1;
+      break;
+      case 2:
+        if (m_disp_hor_size && m_disp_vert_size)
+        {
+          m_extradata->aspectRatio.aspectRatioX = aspect_ratio_info->par_width *
+                                                  m_disp_vert_size;
+          m_extradata->aspectRatio.aspectRatioY = aspect_ratio_info->par_height *
+                                                  m_disp_hor_size;
+        }
+        else
+        {
+          m_extradata->aspectRatio.aspectRatioX = aspect_ratio_info->par_width *
+                                                   drv_ctx.video_resolution.frame_height;
+          m_extradata->aspectRatio.aspectRatioY = aspect_ratio_info->par_height *
+                                                  drv_ctx.video_resolution.frame_width;
+        }
+      break;
+      case 3:
+        if (m_disp_hor_size && m_disp_vert_size)
+        {
+          m_extradata->aspectRatio.aspectRatioX = aspect_ratio_info->par_width *
+                                                  m_disp_vert_size;
+          m_extradata->aspectRatio.aspectRatioY = aspect_ratio_info->par_height *
+                                                  m_disp_hor_size;
+        }
+        else
+        {
+          m_extradata->aspectRatio.aspectRatioX = aspect_ratio_info->par_width *
+                                                   drv_ctx.video_resolution.frame_height;
+          m_extradata->aspectRatio.aspectRatioY = aspect_ratio_info->par_height *
+                                                  drv_ctx.video_resolution.frame_width;
+        }
+      break;
+      case 4:
+        if (m_disp_hor_size && m_disp_vert_size)
+        {
+          m_extradata->aspectRatio.aspectRatioX = aspect_ratio_info->par_width *
+                                                  m_disp_vert_size;
+          m_extradata->aspectRatio.aspectRatioY = aspect_ratio_info->par_height *
+                                                  m_disp_hor_size;
+        }
+        else
+        {
+          m_extradata->aspectRatio.aspectRatioX = aspect_ratio_info->par_width *
+                                                   drv_ctx.video_resolution.frame_height;
+          m_extradata->aspectRatio.aspectRatioY = aspect_ratio_info->par_height *
+                                                  drv_ctx.video_resolution.frame_width;
+        }
+      break;
+      default:
+        m_extradata->aspectRatio.aspectRatioX = 1;
+        m_extradata->aspectRatio.aspectRatioY = 1;
+    }
   }
-#ifdef MAX_RES_1080P
-  else if(drv_ctx.decoder_format == VDEC_CODECTYPE_MPEG4 ||
-          drv_ctx.decoder_format == VDEC_CODECTYPE_DIVX_3 ||
-          drv_ctx.decoder_format == VDEC_CODECTYPE_DIVX_4 ||
-          drv_ctx.decoder_format == VDEC_CODECTYPE_DIVX_5 ||
-          drv_ctx.decoder_format == VDEC_CODECTYPE_DIVX_6)
+  else
   {
-      mp4_fill_aspect_ratio_info(aspect_ratio_info,m_extradata);
+    m_extradata->aspectRatio.aspectRatioX = aspect_ratio_info->par_width;
+    m_extradata->aspectRatio.aspectRatioY = aspect_ratio_info->par_height;
   }
-#endif
-  if(m_extradata->aspectRatio.aspectRatioX == 0 ||
-     m_extradata->aspectRatio.aspectRatioY == 0) {
-       m_extradata->aspectRatio.aspectRatioX = 1;
-       m_extradata->aspectRatio.aspectRatioY = 1;
-  }
+  DEBUG_PRINT_LOW("aspectRatioX %d aspectRatioX %d", m_extradata->aspectRatio.aspectRatioX,
+                                                     m_extradata->aspectRatio.aspectRatioY);
 }
 
 void omx_vdec::append_portdef_extradata(OMX_OTHER_EXTRADATATYPE *extra)
