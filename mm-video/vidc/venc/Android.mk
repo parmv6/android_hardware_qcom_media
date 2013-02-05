@@ -20,6 +20,9 @@ libmm-venc-def += -DENABLE_DEBUG_ERROR
 libmm-venc-def += -UINPUT_BUFFER_LOG
 libmm-venc-def += -UOUTPUT_BUFFER_LOG
 libmm-venc-def += -USINGLE_ENCODER_INSTANCE
+ifeq ($(TARGET_BOARD_PLATFORM),msm7x27a)
+libmm-venc-def += -DMAX_RES_720P
+endif
 ifeq ($(TARGET_BOARD_PLATFORM),msm8660)
 libmm-venc-def += -DMAX_RES_1080P
 endif
@@ -48,7 +51,11 @@ include $(CLEAR_VARS)
 ifeq ($(TARGET_QCOM_DISPLAY_VARIANT),caf)
 DISPLAY := display-caf
 else
+ifeq ($(TARGET_QCOM_DISPLAY_VARIANT),legacy)
+DISPLAY := display-legacy
+else
 DISPLAY := display
+endif
 endif
 
 libmm-venc-inc      := bionic/libc/include

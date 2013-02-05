@@ -21,6 +21,9 @@ libOmxVdec-def += -DENABLE_DEBUG_HIGH
 libOmxVdec-def += -DENABLE_DEBUG_ERROR
 libOmxVdec-def += -UINPUT_BUFFER_LOG
 libOmxVdec-def += -UOUTPUT_BUFFER_LOG
+ifeq ($(TARGET_BOARD_PLATFORM),msm7x27a)
+libOmxVdec-def += -DMAX_RES_720P
+endif
 ifeq ($(TARGET_BOARD_PLATFORM),msm8660)
 libOmxVdec-def += -DMAX_RES_1080P
 libOmxVdec-def += -DPROCESS_EXTRADATA_IN_OUTPUT_PORT
@@ -57,7 +60,11 @@ LOCAL_PATH:= $(ROOT_DIR)
 ifeq ($(TARGET_QCOM_DISPLAY_VARIANT),caf)
 DISPLAY := display-caf
 else
+ifeq ($(TARGET_QCOM_DISPLAY_VARIANT),legacy)
+DISPLAY := display-legacy
+else
 DISPLAY := display
+endif
 endif
 
 libmm-vdec-inc          := bionic/libc/include
