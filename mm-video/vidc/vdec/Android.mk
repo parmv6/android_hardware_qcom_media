@@ -46,9 +46,9 @@ endif
 
 libOmxVdec-def += -D_ANDROID_ICS_
 
-ifeq ($(TARGET_USES_ION),true)
+#ifeq ($(TARGET_USES_ION),true)
 libOmxVdec-def += -DUSE_ION
-endif
+#endif
 
 # ---------------------------------------------------------------------------------
 # 			Make the Shared library (libOmxVdec)
@@ -82,6 +82,8 @@ libmm-vdec-inc          += hardware/qcom/media/libc2dcolorconvert
 libmm-vdec-inc          += hardware/qcom/$(DISPLAY)/libcopybit
 libmm-vdec-inc          += frameworks/av/include/media/stagefright
 libmm-vdec-inc          += hardware/qcom/$(DISPLAY)/libqservice
+libmm-vdec-inc          += frameworks/av/media/libmediaplayerservice
+libmm-vdec-inc          += frameworks/native/include/binder
 
 
 LOCAL_MODULE                    := libOmxVdec
@@ -115,7 +117,7 @@ mm-vdec-test-inc    := hardware/qcom/media/mm-core/inc
 mm-vdec-test-inc    += $(LOCAL_PATH)/inc
 
 LOCAL_MODULE                    := mm-vdec-omx-test
-LOCAL_MODULE_TAGS               := optional
+LOCAL_MODULE_TAGS               := debug
 LOCAL_CFLAGS                    := $(libOmxVdec-def)
 LOCAL_C_INCLUDES                := $(mm-vdec-test-inc)
 
@@ -136,7 +138,7 @@ mm-vdec-drv-test-inc    := hardware/qcom/media/mm-core/inc
 mm-vdec-drv-test-inc    += $(LOCAL_PATH)/inc
 
 LOCAL_MODULE                    := mm-video-driver-test
-LOCAL_MODULE_TAGS               := optional
+LOCAL_MODULE_TAGS               := debug
 LOCAL_CFLAGS                    := $(libOmxVdec-def)
 LOCAL_C_INCLUDES                := $(mm-vdec-drv-test-inc)
 LOCAL_PRELINK_MODULE            := false
